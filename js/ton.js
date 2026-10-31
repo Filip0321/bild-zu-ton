@@ -11,7 +11,8 @@ export function zeileZuFrequenz(zeile, zeilen, tief, hoch) {
   return tief * (hoch / tief) ** (zeile / (zeilen - 1));
 }
 
-function zuAmplitude(luminanz, dynamik) {
+// Helligkeit -> Lautstärke über dB (auch rauschen.js benutzt das, damit beide gleich laut empfinden)
+export function zuAmplitude(luminanz, dynamik) {
   if (!luminanz) return 0; // Schwarz: echte Stille statt nur sehr leise
   const db = (luminanz - 1) * dynamik;
   return 10 ** (db / 20);
@@ -88,19 +89,23 @@ export async function erzeugeTon(raster, spalten, zeilen, { dauer, tief, hoch, d
     }
   }
 
-  // normieren: 128 Sinusse zusammen sind viel lauter als 1, also auf höchstens 0,9 bringen
+  normiere(ton);
+  return ton;
+}
+
+// normieren: 128 Sinusse zusammen sind viel lauter als 1, also auf höchstens 0,9 bringen
+// (ändert ton direkt; auch für rauschen.js)
+export function normiere(ton) {
   let max = 0;
-  for (let n = 0; n < anzahl; n++) {
+  for (let n = 0; n < ton.length; n++) {
     const betrag = Math.abs(ton[n]);
     if (betrag > max) max = betrag;
   }
   if (max > 0) {
     // bei max = 0 (ganz schwarzes Bild) nichts tun, sonst durch 0
     const faktor = 0.9 / max;
-    for (let n = 0; n < anzahl; n++) ton[n] *= faktor;
+    for (let n = 0; n < ton.length; n++) ton[n] *= faktor;
   }
-
-  return ton;
 }
 
 // für zuWav und den Player: Float32Array -> AudioBuffer (1 Kanal)
@@ -108,4 +113,13 @@ export function alsAudioBuffer(ton) {
   const puffer = new AudioBuffer({ length: ton.length, numberOfChannels: 1, sampleRate: RATE });
   puffer.copyToChannel(ton, 0); // die Samples in Kanal 0 kopieren
   return puffer;
+}
+
+// rückwärts: dieselben Samples in umgekehrter Reihenfolge, in einem neuen Puffer (der alte bleibt vorwärts)
+export function rueckwaerts(puffer) {
+  const umgedreht = new AudioBuffer({ length: puffer.length, numberOfChannels: 1, sampleRate: puffer.sampleRate });
+  const samples = puffer.getChannelData(0).slice(); // Kopie: reverse() dreht sonst den Originalpuffer mit um
+  samples.reverse();
+  umgedreht.copyToChannel(samples, 0);
+  return umgedreht;
 }

@@ -3,6 +3,7 @@ const ctx = kopf.getContext("2d");
 const spieler = hole("spieler");
 const stapel = hole("stapel"); 
 const skalaZeigen = hole("skalaZeigen"); 
+const rueckwaerts = hole("rueckwaerts"); // Häkchen: der Strich läuft von rechts nach links
 
 const SKALA = [50, 100, 200, 500, 1000, 2000, 5000, 10000];
 const KOPF_FARBE = "#dddddd"; 
@@ -61,7 +62,9 @@ export function zeichneSkala(c, breite, hoehe, massstab) {
 function zeichneLesekopf() {
   if (!Number.isFinite(spieler.duration) || spieler.duration === 0) return; // noch kein Ton (duration ist NaN)
   const breite = Math.round(dpr); 
-  const x = Math.round((spieler.currentTime / spieler.duration) * kopf.width);
+  let anteil = spieler.currentTime / spieler.duration; // 0 am Anfang, 1 am Ende des Tons
+  if (rueckwaerts.checked) anteil = 1 - anteil; // rückwärts: Anfang des Tons = rechter Rand
+  const x = Math.round(anteil * kopf.width);
   const xImBild = Math.min(x, kopf.width - breite); // am Ende nicht über Rand
   ctx.fillStyle = RAND_FARBE;
   ctx.fillRect(xImBild - breite, 0, breite * 3, kopf.height); 
@@ -88,6 +91,7 @@ function halte() {
 }
 
 skalaZeigen.addEventListener("change", zeichne);
+rueckwaerts.addEventListener("change", zeichne);
 
 spieler.addEventListener("play", () => {
   if (laufId === null) laufe(); // nicht zwei Schleifen gleichzeitig
@@ -101,7 +105,7 @@ spieler.addEventListener("loadedmetadata", zeichne); // neuer Ton: Lesekopf zur�
 function zeitBeiZeiger(event) {
   const rahmen = stapel.getBoundingClientRect(); // Lage und Größe in CSS-Pixeln
   const anteil = Math.min(Math.max((event.clientX - rahmen.left) / rahmen.width, 0), 1); // 0 links, 1 rechts
-  return anteil * spieler.duration;
+  return (rueckwaerts.checked ? 1 - anteil : anteil) * spieler.duration; // rückwärts: rechts ist der Anfang
 }
 
 stapel.addEventListener("pointerdown", (event) => {

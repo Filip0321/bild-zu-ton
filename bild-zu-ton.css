@@ -69,3 +69,21 @@ audio {
   font-size: 0.8rem;
   text-align: center;
 }
+
+/* Schild unter dem Mauszeiger: Frequenz, Note, Zeit, Lautstärke (js/maus-info.js setzt left/top) */
+.maus-info {
+  position: absolute;
+  z-index: 1; /* über beiden Canvas */
+  pointer-events: none; /* Klicks gehen durch zum Bild */
+  transform: translate(12px, -130%); /* rechts über dem Zeiger, nicht darunter */
+  padding: 0.15rem 0.4rem;
+  border: 1px solid currentColor;
+  background: var(--bg);
+  font-family: monospace;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.maus-info.links {
+  transform: translate(calc(-100% - 12px), -130%); /* am rechten Rand links vom Zeiger */
+}

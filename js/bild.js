@@ -8,13 +8,15 @@ const canvasBild = hole("bild");
 const ctxBild = canvasBild.getContext("2d");
 
 export let dateiName = "bild";
-export let originalBild = null;
+export let originalBild = null; // wird vom Kreislauf ersetzt (setzeOriginal)
+export let fotoBild = null; // das Bild aus der Datei, bleibt bis zum nächsten Öffnen
 export let rastertBild = null;
 
 export async function ladeBild(datei) {
   const bild = await createImageBitmap(datei); // wirft bei Nicht-Bildern -> catch in main.js
   // erst wenn es geklappt hat: sonst hätte das alte Bild schon den neuen Namen
   originalBild = bild;
+  fotoBild = bild;
   dateiName = datei.name.replace(/\.[^.]+$/, "");
 }
 

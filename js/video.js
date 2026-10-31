@@ -1,45 +1,120 @@
+// Szenen zeichnen (aus szene.js) und als Video oder PNG speichern.
+// Eine Szene ist eine Folge von Abschnitten; jeder Abschnitt hat seinen Ton und Ebenen:
+//   { bild, feld: { x, y, breite, hoehe }, entsteht, strich, skala, pixelig }
+// entsteht: das Bild erscheint nur, wo der Strich schon war; strich: der Lesekopf läuft durch dieses Feld
+// szene.rueckwaerts: der Strich läuft von rechts nach links, jeder Ton ist umgedreht
+
 import { neueAufnahme, schneideTon, ladeHerunter, zeitstempel, warte, FPS } from "/lib/export.js";
 import { zeichneSkala } from "./kopf.js";
+import { rueckwaerts } from "./ton.js";
 
-const HOEHE = 1080;
-const MAX_BREITE = 3840; // 4K: mehr schafft H.264 nicht
-const KOPF_BREITE = 3; // Pixel im Video
 const KOPF_FARBE = "#dddddd";
-const RAND_FARBE = "rgba(17, 17, 17, 0.8)"; 
+const RAND_FARBE = "rgba(17, 17, 17, 0.8)";
 
-const gerade = (zahl) => zahl - (zahl % 2); // H.264 verlangt gerade Maße
+function zeichneStrich(c, feld, anteil, breite) {
+  const x = feld.x + Math.min(Math.round(anteil * feld.breite), feld.breite - breite); // am Ende nicht über den Rand
+  c.fillStyle = RAND_FARBE;
+  c.fillRect(x - 1, feld.y, breite + 2, feld.hoehe);
+  c.fillStyle = KOPF_FARBE;
+  c.fillRect(x, feld.y, breite, feld.hoehe);
+}
 
-export async function speichereVideo({ puffer, bild, verhaeltnis, pixelig, mitSkala, name, beiFortschritt }) {
-  
-  const hintergrund = baueHintergrund({ bild, verhaeltnis, pixelig, mitSkala });
-  const breite = hintergrund.width; 
-  const hoehe = hintergrund.height;
+// Abschnitt k, der Strich steht bei anteil (0 bis 1). anteil = null: alles fertig, kein Strich (PNG)
+export function zeichneSzene(c, szene, k, anteil) {
+  c.fillStyle = szene.rahmenFarbe;
+  c.fillRect(0, 0, szene.breite, szene.hoehe);
+  const innen = szene.innen;
+  c.fillStyle = szene.hintergrund;
+  c.fillRect(innen.x, innen.y, innen.breite, innen.hoehe);
+
+  if (szene.texte.length > 0) {
+    c.font = `${szene.schrift}px monospace`;
+    c.textBaseline = "middle";
+    c.fillStyle = szene.textFarbe;
+    for (const text of szene.texte) c.fillText(text.inhalt, text.x, text.y);
+  }
+
+  // wo der Strich steht (0 links, 1 rechts): rückwärts fängt er rechts an
+  const lauf = anteil === null ? null : szene.rueckwaerts ? 1 - anteil : anteil;
+
+  for (const ebene of szene.abschnitte[k].ebenen) {
+    const { bild, feld } = ebene;
+    c.imageSmoothingEnabled = !ebene.pixelig;
+    c.imageSmoothingQuality = "high";
+    if (ebene.entsteht && lauf !== null) {
+      // nur der Teil, über den der Strich schon gelaufen ist: vorwärts links von ihm, rückwärts rechts
+      // Quell-Rechteck und Ziel-Rechteck gleich weit (von bis bis, als Anteil der Breite)
+      const von = szene.rueckwaerts ? lauf : 0;
+      const bis = szene.rueckwaerts ? 1 : lauf;
+      const quellBreite = bild.width * (bis - von);
+      if (quellBreite > 0) {
+        c.drawImage(bild, bild.width * von, 0, quellBreite, bild.height,
+          feld.x + feld.breite * von, feld.y, feld.breite * (bis - von), feld.hoehe);
+      }
+    } else {
+      c.drawImage(bild, feld.x, feld.y, feld.breite, feld.hoehe);
+    }
+    if (ebene.skala) {
+      // die Skala immer ganz, auch wenn das Bild erst entsteht; clip: nicht über den Feldrand
+      c.save();
+      c.beginPath();
+      c.rect(feld.x, feld.y, feld.breite, feld.hoehe);
+      c.clip();
+      c.translate(feld.x, feld.y);
+      zeichneSkala(c, feld.breite, feld.hoehe, Math.max(1, (2 * feld.hoehe) / 1080)); // wie früher: Maßstab 2 bei 1080
+      c.restore();
+    }
+    if (ebene.strich && lauf !== null) zeichneStrich(c, feld, lauf, szene.strichBreite);
+  }
+}
+
+// alle Töne der Abschnitte hintereinander zu einer Tonspur
+function hintereinander(puffer) {
+  const laenge = puffer.reduce((summe, p) => summe + p.length, 0);
+  const kanaele = puffer[0].numberOfChannels;
+  const ziel = new AudioBuffer({ length: laenge, numberOfChannels: kanaele, sampleRate: puffer[0].sampleRate });
+  let pos = 0;
+  for (const p of puffer) {
+    for (let kanal = 0; kanal < kanaele; kanal++) ziel.copyToChannel(p.getChannelData(kanal), kanal, pos);
+    pos += p.length;
+  }
+  return ziel;
+}
+
+export async function speichereVideo(szene, { name, beiFortschritt }) {
+  const abschnitte = szene.abschnitte;
+  // rückwärts: jeder Abschnitt für sich umgedreht, die Reihenfolge der Stufen bleibt
+  const ton = hintereinander(abschnitte.map((a) => (szene.rueckwaerts ? rueckwaerts(a.puffer) : a.puffer)));
+  // wann jeder Abschnitt anfängt (in Sekunden): 0, Dauer 1, Dauer 1 + Dauer 2, …
+  const anfaenge = [];
+  let summe = 0;
+  for (const a of abschnitte) {
+    anfaenge.push(summe);
+    summe += a.puffer.duration;
+  }
+
   const rahmen = document.createElement("canvas");
-  rahmen.width = breite;
-  rahmen.height = hoehe;
-  const ctxRahmen = rahmen.getContext("2d");
+  rahmen.width = szene.breite;
+  rahmen.height = szene.hoehe;
+  const c = rahmen.getContext("2d");
 
-  const rate = puffer.sampleRate;
+  const rate = ton.sampleRate;
   let aufnahme = null; // außerhalb von try, damit catch es abbrechen kann
   try {
-    aufnahme = await neueAufnahme(rahmen, FPS, "#111111", { kanaele: puffer.numberOfChannels, rate });
-
-    const anzahl = Math.ceil(puffer.duration * FPS);
+    aufnahme = await neueAufnahme(rahmen, FPS, szene.rahmenFarbe, { kanaele: ton.numberOfChannels, rate });
+    const anzahl = Math.ceil(ton.duration * FPS);
+    let k = 0;
     let letztePause = performance.now();
     for (let i = 0; i < anzahl; i++) {
-      const t = i / FPS; // Zeit im Video = Zeit im Ton (beide fangen bei 0 an)
-      ctxRahmen.drawImage(hintergrund, 0, 0);
-      const x = Math.min(Math.round((t / puffer.duration) * breite), breite - KOPF_BREITE); // am Ende nicht über den Rand
-      ctxRahmen.fillStyle = RAND_FARBE;
-      ctxRahmen.fillRect(x - 1, 0, KOPF_BREITE + 2, hoehe);
-      ctxRahmen.fillStyle = KOPF_FARBE;
-      ctxRahmen.fillRect(x, 0, KOPF_BREITE, hoehe);
+      const t = i / FPS; // Zeit im Video = Zeit im Ton
+      while (k < abschnitte.length - 1 && t >= anfaenge[k + 1]) k++; // nächster Abschnitt?
+      const anteil = Math.min((t - anfaenge[k]) / abschnitte[k].puffer.duration, 1);
+      zeichneSzene(c, szene, k, anteil);
 
       // der Ton für genau dieses Bild: von t bis zum nächsten Bild
       const anfang = Math.round(t * rate);
       const ende = Math.round(((i + 1) / FPS) * rate);
-      const tonStueck = schneideTon(puffer, anfang, ende); // null, wenn nichts mehr übrig ist
-      // Bild und Ton gleichzeitig abgeben und auf beide warten
+      const tonStueck = schneideTon(ton, anfang, ende); // null, wenn nichts mehr übrig ist
       await Promise.all([aufnahme.bild(rahmen, t, 1 / FPS), tonStueck && aufnahme.ton(tonStueck)]);
 
       if (performance.now() - letztePause > 50) {
@@ -51,28 +126,23 @@ export async function speichereVideo({ puffer, bild, verhaeltnis, pixelig, mitSk
     ladeHerunter(await aufnahme.fertig(), `${name}-${zeitstempel()}.mp4`);
     return { codec: aufnahme.codec, tonCodec: aufnahme.tonCodec }; // für den Hinweis in main.js
   } catch (fehler) {
-    await aufnahme?.abbrechen(); 
-    throw fehler; 
+    await aufnahme?.abbrechen();
+    throw fehler;
   }
 }
 
-export function baueHintergrund({ bild, verhaeltnis, pixelig, mitSkala }) {
-  let hoehe = HOEHE;
-  let breite = Math.round(hoehe * verhaeltnis);
-  if (breite > MAX_BREITE) {
-    hoehe = Math.round((hoehe * MAX_BREITE) / breite);
-    breite = MAX_BREITE;
-  }
-  breite = gerade(breite);
-  hoehe = gerade(hoehe);
-
-  const hintergrund = document.createElement("canvas");
-  hintergrund.width = breite; 
-  hintergrund.height = hoehe;
-  const ctxHintergrund = hintergrund.getContext("2d");
-  ctxHintergrund.imageSmoothingEnabled = !pixelig; 
-  ctxHintergrund.drawImage(bild, 0, 0, breite, hoehe);
-  if (mitSkala) zeichneSkala(ctxHintergrund, breite, hoehe, 2); 
-
-  return hintergrund;
+// das fertige Bild (alles da, kein Strich) als PNG
+export function speichereBild(szene, name) {
+  const bild = document.createElement("canvas");
+  bild.width = szene.breite;
+  bild.height = szene.hoehe;
+  zeichneSzene(bild.getContext("2d"), szene, szene.abschnitte.length - 1, null);
+  // toBlob ruft zurück, statt zu warten: in ein Promise packen, damit main.js await benutzen kann
+  return new Promise((fertig, fehler) => {
+    bild.toBlob((blob) => {
+      if (!blob) return fehler(new Error("Das Bild konnte nicht erstellt werden."));
+      ladeHerunter(blob, `${name}-${zeitstempel()}.png`);
+      fertig();
+    }, "image/png");
+  });
 }

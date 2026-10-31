@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/css/steuerung.css">
   <link rel="stylesheet" href="/css/text.css">
   <link rel="stylesheet" href="bild-zu-ton.css">
+  <link rel="stylesheet" href="/css/export-dialog.css">
 </head>
 <body>
   <!-- werkbank: hochkant untereinander, quer Canvas links und Bedienung rechts (css/canvas.css) -->
@@ -26,6 +27,7 @@
       <div class="feld-stapel bildton" id="stapel">
         <canvas id="bild"></canvas> <!-- das verpixelte Bild: eine Canvas-Pixel pro Spalte und Zeile -->
         <canvas id="kopf"></canvas> <!-- darüber: der Strich, wo der Ton gerade herkommt -->
+        <div class="maus-info" id="mausInfo" hidden></div> <!-- Frequenz, Note, Zeit, Lautstärke unter dem Zeiger (js/maus-info.js) -->
       </div>
     </div>
 
@@ -83,7 +85,18 @@
           <input type="range" id="dynamik" min="10" max="90" step="1" value="60">
           <output id="dynamikAnzeige"></output>
         </label>
+        <!-- Töne: pro Zeile ein Sinus (klar); Rauschen: inverse FFT, jedes Fach ein schmales Band Rauschen (luftig) -->
+        <div class="modus" id="syntheseArt">
+          <button type="button" data-art="toene" aria-pressed="true">Töne</button>
+          <button type="button" data-art="rauschen" aria-pressed="false">Rauschen</button>
+        </div>
+        <!-- nur bei Rauschen: wie oft Griffin-Lim die Phase nachbessert (0 = reines Zufallsrauschen) -->
+        <label id="durchgaengeLabel" hidden>Durchgänge
+          <input type="range" id="durchgaenge" min="0" max="50" step="1" value="10">
+          <output id="durchgaengeAnzeige"></output>
+        </label>
         <label><input type="checkbox" id="schleife"> Schleife</label> <!-- Player fängt am Ende wieder vorne an -->
+        <label><input type="checkbox" id="rueckwaerts"> rückwärts</label> <!-- Strich von rechts nach links, Ton umgedreht -->
         <button type="button" id="erzeugen">Ton erzeugen</button>
       </div>
       <h2 class="gruppe">Kreislauf</h2>
@@ -96,8 +109,6 @@
       </div>
       <!-- Runde 0 (Start) bis N, Klick = diese Stufe weiterbenutzen -->
       <div class="stufen" id="stufen"></div>
-      <div class="steuerung">
-        <button type="button" id="stufenSpeichern">Stufen speichern</button>
       <audio id="spieler" controls></audio>
       <p class="meldung" id="meldung" hidden></p> 
       
@@ -106,6 +117,47 @@
         <button type="button" id="bildSpeichern">Bild speichern</button>
         <button type="button" id="wavSpeichern">WAV speichern</button>
         <button type="button" id="videoSpeichern">Video speichern</button>
+      </div>
+    </div>
+  
+    <!-- eigene Felder fürs Export-Fenster: /lib/export-dialog.js verschiebt sie beim Start dorthin -->
+    <div id="exportFelder" hidden>
+      <h3 class="gruppe">Inhalt</h3>
+      <div class="steuerung">
+        <label>Was
+          <select id="exportInhalt">
+            <option value="ansicht">Ansicht (wie gerade zu sehen)</option>
+            <option value="stufen">Stufen des Kreislaufs</option>
+          </select>
+        </label>
+        <!-- wie die Anzeige auf der Seite; bei den Stufen heißt verzerrt und original: in den Farben des Fotos -->
+        <label>Ansicht
+          <select id="exportAnsicht">
+            <option value="raster">Raster (Farbskala)</option>
+            <option value="verzerrt">Original verzerrt</option>
+            <option value="original">Original</option>
+          </select>
+        </label>
+        <label id="exportAblaufLabel">Ablauf
+          <select id="exportAblauf">
+            <option value="gesehen">wie gesehen</option>
+            <option value="aufbauen">aufbauen (entsteht bis zum Strich)</option>
+          </select>
+        </label>
+        <label id="exportAnordnungLabel">Anordnung
+          <select id="exportAnordnung">
+            <option value="paar">Paar (zwei übereinander, rücken nach)</option>
+            <option value="gitter">Gitter (alle Stufen)</option>
+          </select>
+        </label>
+        <label id="exportSpaltenLabel">nebeneinander (0 = automatisch) <input type="number" id="exportSpalten" min="0" max="12" step="1" value="0"></label>
+        <label id="exportBeschriftungLabel"><input type="checkbox" id="exportBeschriftung" checked> Start, Runde 1 … darüber</label>
+        <label>Hintergrund
+          <select id="exportHintergrund">
+            <option value="#000000">schwarz</option>
+            <option value="#ffffff">weiß</option>
+          </select>
+        </label>
       </div>
     </div>
 
